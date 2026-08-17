@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sikanoppapeli</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Sikanoppapeli</h1>
+        
+        
+        <div class="setup active" id="setup">
+            <h2>Asetukset</h2>
+            <div>
+                <label>Monta noppaa:</label>
+                <select id="gameMode">
+                    <option value="single">Yksi noppa</option>
+                    <option value="double">Kaksi noppaa</option>
+                </select>
+            </div>
+            <div>
+                <label>Tavoite pisteet:</label>
+                <input type="number" id="targetScore" value="100" min="50">
+            </div>
+            <div>
+                <label>Pelaajat:</label>
+                <div id="playersSetup">
+                    <input type="text" value="Pelaaja 1" data-id="0">
+                    <input type="text" value="Pelaaja 2" data-id="1">
+                </div>
+                <button onclick="addPlayerInput()">+ Lisää pelaaja</button>
+            </div>
+            <button class="btn-roll" onclick="startGame()">Aloita peli</button>
+            <div style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 5px; font-size: 0.9em;">
+                <strong>Kahden nopan säännöt:</strong><br>
+                - Tuplat = tuplapisteet<br>
+                - Kaksi ykköstä = 25 pistettä<br>
+                - Yksi ykkönen = vuoro päättyy, ei pisteitä<br>
+                - Kolme tuplaa peräkkäin = vuoro päättyy, ei pisteitä 
+            </div>
+        </div>
+        
+        
+        <div class="game" id="game">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                <div id="gameInfo"></div>
+                <div id="currentPlayer"></div>
+            </div>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                
+                <div style="flex: 1; min-width: 250px;">
+                    <h3>Pelaajat</h3>
+                    <div id="playersList"></div>
+                </div>
+                
+                
+                <div style="flex: 1; min-width: 200px; text-align: center;">
+                    <h3>Noppa</h3>
+                    <div id="diceContainer">
+                        <div class="dice" id="dice1">?</div>
+                        <div class="dice" id="dice2" style="display:none;">?</div>
+                    </div>
+                    <div id="rollInfo" style="margin: 10px 0;"></div>
+                    <div id="consecutiveDoublesInfo" style="margin: 5px 0; font-size: 0.9em; color: #666;"></div>
+                    <div>
+                        <button class="btn-roll" id="rollBtn" onclick="roll()" disabled>Heitä</button>
+                        <button class="btn-hold" id="holdBtn" onclick="hold()" disabled>Pysäytä</button>
+                    </div>
+                    <div>Kierroksen pisteet: <span id="turnScore">0</span></div>
+                </div>
+            </div>
+            
+            <div class="log">
+                <h4>Loki:</h4>
+                <div id="log"></div>
+            </div>
+            
+            <button class="btn-reset" onclick="resetGame()">Aloita alusta</button>
+        </div>
+    </div>
+    
+    
+    <div id="winnerModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center;">
+        <div style="background:white; padding:30px; border-radius:10px; text-align:center;">
+            <h2>Pääsit tavoitteeseen</h2>
+            <h1 id="winnerName">Pelaaja</h1>
+            <p>Voitit pelin</p>
+            <button class="btn-roll" onclick="closeModal()">OK</button>
+        </div>
+    </div>
+
+    <script>
+        
+        let players = [];
+        let currentPlayerIndex = 0;
+        let turnScore = 0;
+        let targetScore = 100;
+        let gameMode = 'single';
+        let gameOver = false;
+        let diceValues = [0, 0];
+        let consecutiveDoubles = 0;
+
+    
+        function startGame() {
+            gameMode = document.getElementById('gameMode').value;
+            targetScore = parseInt(document.getElementById('targetScore').value) || 100;
+            
+            const playerInputs = document.querySelectorAll('#playersSetup input');
+            players = [];
+            playerInputs.forEach(input => {
+                players.push({
+                    name: input.value || 'Pelaaja ' + (players.length + 1),
+                    total: 0,
+                    turn: 0
+                });
+            });
+            
+            currentPlayerIndex = 0;
+            turnScore = 0;
+            gameOver = false;
+            consecutiveDoubles = 0;
+            
+            document.getElementById('setup').classList.remove('active');
+            document.getElementById('game').classList.add('active');
+            
+            updateGameInfo();
+            updatePlayersList();
+            updateDiceDisplay();
+            
+            document.getElementById('rollBtn').disabled = false;
+            document.getElementById('holdBtn').disabled = false;
+            
+            addLog('Peli aloitettu: ' + players.length + ' pelaajaa, ' + (gameMode === 'single' ? 'yksi noppa' : 'kaksi noppaa'));
+        }
+
+        
+        function roll() {
+            if (gameOver) return;
+            
+            const count = gameMode === 'single' ? 1 : 2;
+            let sum = 0;
+            let hasOne = false;
+            let hasDoubleOne = false;
+            let isDouble = false;
+            let doubleValue = 0;
+            
+            for (let i = 0; i < count; i++) {
+                diceValues[i] = Math.floor(Math.random() * 6) + 1;
+                sum += diceValues[i];
+                if (diceValues[i] === 1) hasOne = true;
+            }
+            
+            
+            if (count === 2 && diceValues[0] === diceValues[1]) {
+                isDouble = true;
+                doubleValue = diceValues[0];
+            }
+            
+            
+            if (count === 2 && diceValues[0] === 1 && diceValues[1] === 1) {
+                hasDoubleOne = true;
+            }
+            
+           
+            document.getElementById('dice1').textContent = diceValues[0];
+            document.getElementById('dice2').textContent = diceValues[1];
+            
+            
+            if (gameMode === 'double') {
+                if (hasDoubleOne) {
+                    
+                    turnScore += 25;
+                    consecutiveDoubles++;
+                    document.getElementById('rollInfo').textContent = 'Kaksi ykköstä. +25 pistettä';
+                    document.getElementById('consecutiveDoublesInfo').textContent = 'Peräkkäiset tuplat: ' + consecutiveDoubles;
+                    addLog(players[currentPlayerIndex].name + ' heitti kaksi ykköstä. +25 pistettä');
+                    
+                    
+                    if (consecutiveDoubles >= 3) {
+                        turnScore = 0;
+                        consecutiveDoubles = 0;
+                        document.getElementById('consecutiveDoublesInfo').textContent = '';
+                        addLog(players[currentPlayerIndex].name + ' heitti kolme tuplaa peräkkäin. Vuoro päättyy.', 'danger');
+                        document.getElementById('rollInfo').textContent = 'Kolme tuplaa peräkkäin. Vuoro päättyy.';
+                        document.getElementById('rollInfo').style.color = '#f44336';
+                        endTurn();
+                        return;
+                    }
+                } else if (isDouble) {
+                    
+                    turnScore += sum * 2; 
+                    consecutiveDoubles++;
+                    document.getElementById('rollInfo').textContent = 'Tuplat ' + doubleValue + '+' + doubleValue + ' = ' + (sum * 2) + ' pistettä';
+                    document.getElementById('consecutiveDoublesInfo').textContent = 'Peräkkäiset tuplat: ' + consecutiveDoubles;
+                    addLog(players[currentPlayerIndex].name + ' heitti tuplat (' + doubleValue + ')! +' + (sum * 2) + ' pistettä');
+                    
+                    
+                    if (consecutiveDoubles >= 3) {
+                        turnScore = 0;
+                        consecutiveDoubles = 0;
+                        document.getElementById('consecutiveDoublesInfo').textContent = '';
+                        addLog(players[currentPlayerIndex].name + ' heitti kolme tuplaa peräkkäin. Vuoro päättyy.', 'danger');
+                        document.getElementById('rollInfo').textContent = 'Kolme tuplaa peräkkäin. Vuoro päättyy.';
+                        document.getElementById('rollInfo').style.color = '#f44336';
+                        endTurn();
+                        return;
+                    }
+                } else if (hasOne) {
+                    
+                    turnScore = 0;
+                    consecutiveDoubles = 0;
+                    document.getElementById('consecutiveDoublesInfo').textContent = '';
+                    addLog(players[currentPlayerIndex].name + ' heitti ykkösen. Vuoro päättyy, ei pisteitä.', 'danger');
+                    document.getElementById('rollInfo').textContent = 'Ykkönen. Vuoro päättyy.';
+                    document.getElementById('rollInfo').style.color = '#f44336';
+                    endTurn();
+                    return;
+                } else {
+                    
+                    turnScore += sum;
+                    consecutiveDoubles = 0;
+                    document.getElementById('consecutiveDoublesInfo').textContent = '';
+                    document.getElementById('rollInfo').textContent = 'Heitto: ' + sum + ' pistettä';
+                    document.getElementById('rollInfo').style.color = '#4CAF50';
+                    addLog(players[currentPlayerIndex].name + ' heitti ' + diceValues[0] + ' ja ' + diceValues[1] + ' = ' + sum + ' pistettä');
+                }
+            }
+            
+            else {
+                if (diceValues[0] === 1) {
+                    turnScore = 0;
+                    addLog(players[currentPlayerIndex].name + ' heitti ykkösen. Vuoro päättyy.', 'danger');
+                    document.getElementById('rollInfo').textContent = 'Ykkönen. Vuoro päättyy.';
+                    document.getElementById('rollInfo').style.color = '#f44336';
+                    endTurn();
+                    return;
+                } else {
+                    turnScore += sum;
+                    document.getElementById('rollInfo').textContent = 'Heitto: ' + sum + ' pistettä';
+                    document.getElementById('rollInfo').style.color = '#4CAF50';
+                    addLog(players[currentPlayerIndex].name + ' heitti ' + sum + ' pistettä');
+                }
+            }
+            
+            document.getElementById('turnScore').textContent = turnScore;
+            
+            
+            if (players[currentPlayerIndex].total + turnScore >= targetScore) {
+                addLog(players[currentPlayerIndex].name + ' voi voittaa pysäyttämällä', 'warning');
+            }
+            
+            updatePlayersList();
+        }
+
+        
+        function hold() {
+            if (gameOver || turnScore === 0) return;
+            
+            players[currentPlayerIndex].total += turnScore;
+            addLog(players[currentPlayerIndex].name + ' pysäytti ja sai ' + turnScore + ' pistettä', 'success');
+            
+            if (players[currentPlayerIndex].total >= targetScore) {
+                players[currentPlayerIndex].winner = true;
+                gameOver = true;
+                document.getElementById('winnerName').textContent = players[currentPlayerIndex].name;
+                document.getElementById('winnerModal').style.display = 'flex';
+                
+                document.getElementById('rollBtn').disabled = true;
+                document.getElementById('holdBtn').disabled = true;
+            } else {
+                consecutiveDoubles = 0;
+                document.getElementById('consecutiveDoublesInfo').textContent = '';
+                endTurn();
+            }
+            
+            updatePlayersList();
+        }
+
+        
+        function endTurn() {
+            turnScore = 0;
+            consecutiveDoubles = 0;
+            document.getElementById('turnScore').textContent = '0';
+            document.getElementById('rollInfo').textContent = '';
+            document.getElementById('consecutiveDoublesInfo').textContent = '';
+            document.getElementById('rollInfo').style.color = '';
+            
+            players[currentPlayerIndex].current = false;
+            
+            do {
+                currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+            } while (players[currentPlayerIndex].winner);
+            
+            players[currentPlayerIndex].current = true;
+            
+            document.getElementById('dice1').textContent = '?';
+            document.getElementById('dice2').textContent = '?';
+            
+            updatePlayersList();
+            updateGameInfo();
+        }
+
+        
+        function resetGame() {
+            players.forEach(p => {
+                p.total = 0;
+                p.turn = 0;
+                p.current = false;
+                p.winner = false;
+            });
+            currentPlayerIndex = 0;
+            turnScore = 0;
+            gameOver = false;
+            diceValues = [0, 0];
+            consecutiveDoubles = 0;
+            
+            players[0].current = true;
+            
+            document.getElementById('turnScore').textContent = '0';
+            document.getElementById('dice1').textContent = '?';
+            document.getElementById('dice2').textContent = '?';
+            document.getElementById('rollInfo').textContent = '';
+            document.getElementById('consecutiveDoublesInfo').textContent = '';
+            document.getElementById('rollInfo').style.color = '';
+            
+            document.getElementById('rollBtn').disabled = false;
+            document.getElementById('holdBtn').disabled = false;
+            
+            updatePlayersList();
+            updateGameInfo();
+            
+            addLog('Peli alotettiin alusta');
+        }
+
+        
+        function closeModal() {
+            document.getElementById('winnerModal').style.display = 'none';
+            resetGame();
+        }
+
+       
+        function addPlayerInput() {
+            const container = document.getElementById('playersSetup');
+            const inputs = container.querySelectorAll('input');
+            
+            if (inputs.length >= 8) {
+                alert('Maksimi 8 pelaajaa!');
+                return;
+            }
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = 'Pelaaja ' + (inputs.length + 1);
+            input.dataset.id = inputs.length;
+            container.appendChild(input);
+        }
+
+        
+        function updateGameInfo() {
+            const info = document.getElementById('gameInfo');
+            info.textContent = (gameMode === 'single' ? 'Yksi noppa' : 'Kaksi noppaa') + ' | Tavoite: ' + targetScore;
+            
+            const current = document.getElementById('currentPlayer');
+            current.textContent = 'Vuoro: ' + players[currentPlayerIndex].name;
+        }
+
+        
+        function updatePlayersList() {
+            const list = document.getElementById('playersList');
+            list.innerHTML = '';
+            
+            players.forEach((p, i) => {
+                const div = document.createElement('div');
+                div.className = 'player';
+                if (p.current) div.classList.add('current');
+                if (p.winner) div.classList.add('winner');
+                
+                div.innerHTML = `
+                    <span><strong>${p.name}</strong></span>
+                    <span>${p.total} pistetta${p.current ? ' + ' + turnScore : ''}</span>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        
+        function updateDiceDisplay() {
+            document.getElementById('dice2').style.display = gameMode === 'double' ? 'block' : 'none';
+        }
+
+        
+        function addLog(message, type = '') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            if (type === 'danger') entry.style.color = '#f44336';
+            if (type === 'success') entry.style.color = '#4CAF50';
+            if (type === 'warning') entry.style.color = '#ff9800';
+            entry.textContent = message;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+            
+            while (log.children.length > 30) {
+                log.removeChild(log.firstChild);
+            }
+        }
+    </script>
+</body>
+</html>
